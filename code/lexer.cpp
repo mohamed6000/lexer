@@ -238,7 +238,7 @@ int Lexer::peek_next_character(void)
 
 void Lexer::unwind_one_character(void)
 {
-    assert(input_cursor > 0);
+    assert(input_cursor != 0);
     --input_cursor;
     --current_character_index;
 }
