@@ -140,6 +140,8 @@ struct Lexer
     Token check_for_equals(int token, int composed_token, b8 should_consume, int subtract_amount = 0);
     Token make_identifier(void);
     Token make_number(void);
+    Token make_binary_number(void);
+    Token make_hex_number(void);
     Token make_string(void);
 
     int parse_decimal_digit(void);

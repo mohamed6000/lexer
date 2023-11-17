@@ -56,8 +56,23 @@ Token Lexer::peek_next_token(void)
         {
             return make_identifier();
         }
-        if (isdigit(c))
+        if (isdigit(c) != 0)
         {
+            if (c == '0')
+            {
+                eat_character();
+                int next = peek_next_character();
+                if ((next == 'b') || (next == 'B'))
+                {
+                    // binary
+                    return make_binary_number();
+                }
+                else if ((next == 'x') || (next == 'X'))
+                {
+                    // hex
+                    return make_hex_number();
+                }
+            }
             return make_number();
         }
         if (c == '.')
@@ -361,6 +376,8 @@ Token Lexer::make_number(void)
     char *mantisse_cursor = null;
     char *exponent_cursor = null;
 
+    u64 digital_accumulator = 0;
+
     char *cur = token_buffer;
     int c;
     
@@ -368,24 +385,6 @@ Token Lexer::make_number(void)
     {
         if (cur >= (token_buffer + MAX_TOKEN_SIZE)) break;
         c = peek_next_character();
-
-        if ((cur == (token_buffer + 1)) && (*token_buffer == '0') && (result.flags == 0))
-        {
-            if ((c == 'b') || (c == 'B'))
-            {
-                cur = token_buffer;
-                result.flags |= LiteralNumber_BINARY;
-                eat_character();
-                continue;
-            }
-            else if ((c == 'x') || (c == 'X'))
-            {
-                cur = token_buffer;
-                result.flags |= LiteralNumber_HEXADECIMAL;
-                eat_character();
-                continue;
-            }
-        }
 
         if (c == '_')
         {
@@ -409,18 +408,6 @@ Token Lexer::make_number(void)
                     set_token_end(&result);
                     report_error(&result, "Can't have two decimal points in a number");
                     break;
-                }
-
-                if (result.flags & LiteralNumber_BINARY)
-                {
-                    set_token_end(&result);
-                    report_error(&result, "Can't have a decimal point in a binary number");
-                }
-
-                if (result.flags & LiteralNumber_HEXADECIMAL)
-                {
-                    set_token_end(&result);
-                    report_error(&result, "Can't have a decimal point in a hexadecimal number");
                 }
 
                 *cur++ = '.';
@@ -485,43 +472,17 @@ Token Lexer::make_number(void)
             else
             {
                 // integer
-                // exit if the character is not a digit or a hex digit
+                // exit if the character is not a digit
                 // because we probably reached the end of the number
-                b8 should_exit = true;
-                // we set digit 0 every time to avoid getting invalid digit in
-                // binary number when we reach a ';' or something else
                 int digit = 0;
 
                 if (isdigit(c))
                 {
                     digit = c - '0';
-                    should_exit = false;
+                    digital_accumulator *= 10;
+                    digital_accumulator += digit;
                 }
-
-                if (result.flags & LiteralNumber_BINARY)
-                {
-                    if (digit > 1)
-                    {
-                        should_exit = true;
-                        set_token_end(&result);
-                        report_error(&result, "Invalid digit in a binary number");
-                        break;
-                    }
-                }
-                else if (result.flags & LiteralNumber_HEXADECIMAL)
-                {
-                    if (c >= 'A' && c <= 'F')
-                    {
-                        should_exit = false;
-                    }
-
-                    if (c >= 'a' && c <= 'f')
-                    {
-                        should_exit = false;
-                    }
-                }
-
-                if (should_exit)
+                else
                 {
                     break;
                 }
@@ -536,6 +497,152 @@ Token Lexer::make_number(void)
     result.name.length = cur - token_buffer;
     result.name.data = token_buffer;
     set_token_end(&result);
+    //fprintf(stdout, "%llu\n", digital_accumulator);
+    return result;
+}
+
+Token Lexer::make_binary_number(void)
+{
+    Token result;
+    result.type = TokenType_NUMBER;
+    result.flags = LiteralNumber_BINARY;
+    set_token_position(&result);
+    result.col_start -= 1; // account for '0' in the prefix
+    eat_character();
+
+    u64 digital_accumulator = 0;
+
+    char *cur = token_buffer;
+    int c;
+    while (true)
+    {
+        if (cur >= (token_buffer + MAX_TOKEN_SIZE)) break;
+        c = peek_next_character();
+
+        if (c == '_')
+        {
+            eat_character();
+            continue;
+        }
+
+        if (c == '.')
+        {
+            eat_character();
+            c = peek_next_character();
+            if (c == '.')
+            {
+                unwind_one_character();
+                break;
+            }
+            else
+            {
+                set_token_end(&result);
+                report_error(&result, "Can't have a decimal point in a binary number");
+                break;
+            }
+        }
+
+        if (isdigit(c))
+        {
+            int digit = c - '0';
+            if (digit > 1)
+            {
+                set_token_end(&result);
+                report_error(&result, "Invalid digit in a binary number");
+                break;
+            }
+
+            digital_accumulator *= 2;
+            digital_accumulator += digit;
+        }
+        else
+        {
+            break;
+        }
+
+        eat_character();
+        *cur++ = c;
+    }
+    *cur = 0;
+
+    result.name.length = cur - token_buffer;
+    result.name.data = token_buffer;
+    set_token_end(&result);
+    //fprintf(stdout, "%llu\n", digital_accumulator);
+    return result;
+}
+
+Token Lexer::make_hex_number(void)
+{
+    Token result;
+    result.type = TokenType_NUMBER;
+    result.flags = LiteralNumber_HEXADECIMAL;
+    set_token_position(&result);
+    result.col_start -= 1; // account for '0' in the prefix
+    eat_character();
+
+    u64 digital_accumulator = 0;
+
+    char *cur = token_buffer;
+    int c;
+    while (true)
+    {
+        if (cur >= (token_buffer + MAX_TOKEN_SIZE)) break;
+        c = peek_next_character();
+
+        if (c == '_')
+        {
+            eat_character();
+            continue;
+        }
+
+        if (c == '.')
+        {
+            eat_character();
+            c = peek_next_character();
+            if (c == '.')
+            {
+                unwind_one_character();
+                break;
+            }
+            else
+            {
+                set_token_end(&result);
+                report_error(&result, "Can't have a decimal point in a hexadecimal number");
+                break;
+            }
+        }
+
+        int digit = 0;
+        if ((c >= 'A') && (c <= 'F'))
+        {
+            digit = 10 + (c - 'A');
+        }
+        else if ((c >= 'a') && (c <= 'f'))
+        {
+            digit = 10 + (c - 'a');
+        }
+        else if ((c >= '0') && (c <= '9'))
+        {
+            digit = c - '0';
+        }
+        else
+        {
+            break;
+        }
+
+        digital_accumulator *= 16;
+        digital_accumulator += digit;
+
+        eat_character();
+        *cur++ = c;
+    }
+    *cur = 0;
+
+    result.name.length = cur - token_buffer;
+    result.name.data = token_buffer;
+    set_token_end(&result);
+    //fprintf(stdout, "%llu\n", digital_accumulator);
     return result;
 }
 
