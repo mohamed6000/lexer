@@ -31,25 +31,31 @@ int main(void)
 
     while (true)
     {
-        Token t = lexer.peek_next_token();
-        if (lexer.should_stop_processing) return -1;
-        if (t.type == TokenType_END_OF_FILE) break;
+        Token *t = lexer.peek_next_token();
+        if (t->type == TokenType_END_OF_FILE) break;
 
-        if (t.type < 256)
+        lexer.eat_token();
+
+        if (t->type < 128)
         {
-            printf("Token(%d, %d) %c\n", t.line_start, t.col_start, t.type);
-        }
-        else if (t.type >= __TokenType_FIRST_KEYWORD && t.type <= __TokenType_LAST_KEYWORD)
-        {
-            printf("Keyword(%d, %d) '%s', length: %d\n", t.line_start, t.col_start, t.name.data, (int)t.name.length);
-        }
-        else if (t.type == TokenType_RESERVED_TYPE)
-        {
-            printf("ReservedType(%d, %d) '%s', length: %d\n", t.line_start, t.col_start, t.name.data, (int)t.name.length);
+            char data[1];
+            data[0] = t->type;
+            String s;
+            s.length = 1;
+            s.data = (char*)data;
+            fprintf(stdout, "%d,%d: '%.*s'\n", t->line_start, t->col_start, (int)s.length, s.data);
         }
         else
         {
-            printf("Token(%d, %d) '%s', length: %d\n", t.line_start, t.col_start, t.name.data, (int)t.name.length);
+            switch (t->type)
+            {
+                case TokenType_IDENTIFIER:
+                    fprintf(stdout, "%d,%d: IDENTIFIER '%.*s'\n", t->line_start, t->col_start, (int)t->name.length, t->name.data);
+                    break;
+                default:
+                    fprintf(stdout, "%d,%d: %s\n", t->line_start, t->col_start, token_type_strings(t->type));
+                    break;
+            }
         }
     }
 

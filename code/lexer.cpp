@@ -37,7 +37,40 @@ b8 Lexer::initialize(String source)
     return true;
 }
 
-Token Lexer::peek_next_token(void)
+Token *Lexer::peek_next_token(void)
+{
+    if (number_of_tokens > 0)
+    {
+        return &tokens[token_cursor];
+    }
+
+    generate_token();
+    number_of_tokens += 1;
+    return &tokens[token_cursor];
+}
+
+Token *Lexer::peek_token(int index)
+{
+    assert(index >= 0);
+    assert(index < TOTAL_TOKEN_COUNT);
+    if (index == 0) return peek_next_token();
+
+    while (number_of_tokens <= index)
+    {
+        if (should_stop_processing)
+        {
+            set_token_end(&eof);
+            return &eof;
+        }
+        // generate tokens ahead
+        generate_token();
+        number_of_tokens += 1;
+    }
+    int token_index = (token_cursor + index) % TOTAL_TOKEN_COUNT;
+    return &tokens[token_index];
+}
+
+Token *Lexer::generate_token(void)
 {
     while (true)
     {
@@ -81,7 +114,7 @@ Token Lexer::peek_next_token(void)
             c = peek_next_character();
             if (c == '.')
             {
-                Token result = make_one_character_token(TokenType_DOUBLE_DOT);
+                Token *result = make_one_character_token(TokenType_DOUBLE_DOT);
                 eat_character();
                 return result;
             }
@@ -133,7 +166,7 @@ Token Lexer::peek_next_token(void)
                 {
                     // @hack: in this case we eat the character after making the token
                     // because it's combined of two characters '->'
-                    Token result = make_one_character_token(TokenType_RIGHT_ARROW);
+                    Token *result = make_one_character_token(TokenType_RIGHT_ARROW);
                     eat_character();
                     return result;
                 }
@@ -177,7 +210,7 @@ Token Lexer::peek_next_token(void)
                 int next = peek_next_character();
                 if (next == '&')
                 {
-                    Token result = make_one_character_token(TokenType_LOGICAL_AND);
+                    Token *result = make_one_character_token(TokenType_LOGICAL_AND);
                     eat_character();
                     return result;
                 }
@@ -193,7 +226,7 @@ Token Lexer::peek_next_token(void)
                 int next = peek_next_character();
                 if (next == '|')
                 {
-                    Token result = make_one_character_token(TokenType_LOGICAL_OR);
+                    Token *result = make_one_character_token(TokenType_LOGICAL_OR);
                     eat_character();
                     return result;
                 }
@@ -227,6 +260,28 @@ Token Lexer::peek_next_token(void)
             } break;
         }
     }
+}
+
+void Lexer::eat_token(void)
+{
+    // we are done with the current token
+    // we can now peek a new one
+    assert(number_of_tokens > 0);
+
+    number_of_tokens -= 1;
+    token_cursor = (token_cursor + 1) % TOTAL_TOKEN_COUNT;
+}
+
+Token *Lexer::get_unused_token(void)
+{
+    assert(number_of_tokens < TOTAL_TOKEN_COUNT);
+    int index = (token_cursor + number_of_tokens) % TOTAL_TOKEN_COUNT;
+    Token *result = &tokens[index];
+    result->type = TokenType_ERROR;
+    result->line_start = current_line_number;
+    result->col_start = current_character_index;
+    result->flags = 0;
+    return result;
 }
 
 void Lexer::eat_character(void)
@@ -313,19 +368,19 @@ void Lexer::eat_block_comment(void)
     }
 }
 
-Token Lexer::make_one_character_token(int type)
+Token *Lexer::make_one_character_token(int type)
 {
-    Token result;
-    set_token_position(&result);
-    result.type = (TokenType)type;
-    result.col_start -= 1;
-    set_token_end(&result);
+    Token *result = get_unused_token();
+    set_token_position(result);
+    result->type = (TokenType)type;
+    result->col_start -= 1;
+    set_token_end(result);
     return result;
 }
 
-Token Lexer::check_for_equals(int token, int composed_token, b8 should_consume, int subtract_amount)
+Token *Lexer::check_for_equals(int token, int composed_token, b8 should_consume, int subtract_amount)
 {
-    Token result;
+    Token *result;
     if (should_consume) eat_character();
 
     int next = peek_next_character();
@@ -333,21 +388,21 @@ Token Lexer::check_for_equals(int token, int composed_token, b8 should_consume, 
     {
         eat_character();
         result = make_one_character_token(composed_token);
-        result.col_start -= subtract_amount + 1;
+        result->col_start -= subtract_amount + 1;
     }
     else
     {
         result = make_one_character_token(token);
-        result.col_start -= subtract_amount;
+        result->col_start -= subtract_amount;
     }
     return result;
 }
 
-Token Lexer::make_identifier(void)
+Token *Lexer::make_identifier(void)
 {
-    Token result;
-    result.type = TokenType_IDENTIFIER;
-    set_token_position(&result);
+    Token *result = get_unused_token();
+    result->type = TokenType_IDENTIFIER;
+    set_token_position(result);
     
     int c = peek_next_character();
     char *cur = token_buffer;
@@ -359,19 +414,19 @@ Token Lexer::make_identifier(void)
     }
     *cur = 0;
     
-    result.name.length = cur - token_buffer;
-    result.name.data = token_buffer;
-    result.type = check_for_keyword(&result);
+    result->name.length = cur - token_buffer;
+    result->name.data = token_buffer;
+    result->type = check_for_keyword(result);
 
-    set_token_end(&result);
+    set_token_end(result);
     return result;
 }
 
-Token Lexer::make_number(void)
+Token *Lexer::make_number(void)
 {
-    Token result;
-    result.type = TokenType_NUMBER;
-    set_token_position(&result);
+    Token *result = get_unused_token();
+    result->type = TokenType_NUMBER;
+    set_token_position(result);
 
     char *mantisse_cursor = null;
     char *exponent_cursor = null;
@@ -405,14 +460,14 @@ Token Lexer::make_number(void)
             {
                 if (mantisse_cursor)
                 {
-                    set_token_end(&result);
-                    report_error(&result, "Can't have two decimal points in a number");
+                    set_token_end(result);
+                    report_error(result, "Can't have two decimal points in a number");
                     break;
                 }
 
                 *cur++ = '.';
                 mantisse_cursor = cur;
-                result.flags |= LiteralNumber_FLOAT;
+                result->flags |= LiteralNumber_FLOAT;
                 continue;
             }
         }
@@ -427,8 +482,8 @@ Token Lexer::make_number(void)
                     {
                         if (exponent_cursor)
                         {
-                            set_token_end(&result);
-                            report_error(&result, "Can't have two exponents in a number");
+                            set_token_end(result);
+                            report_error(result, "Can't have two exponents in a number");
                             break;
                         }
 
@@ -452,8 +507,8 @@ Token Lexer::make_number(void)
                         }
                         else
                         {
-                            set_token_end(&result);
-                            report_error(&result, "'e' in float literals must be followed by '+' or '-' or a numerical digit");
+                            set_token_end(result);
+                            report_error(result, "'e' in float literals must be followed by '+' or '-' or a numerical digit");
                             break;
                         }
                     }
@@ -494,20 +549,20 @@ Token Lexer::make_number(void)
     }
     *cur = 0;
 
-    result.name.length = cur - token_buffer;
-    result.name.data = token_buffer;
-    set_token_end(&result);
+    result->name.length = cur - token_buffer;
+    result->name.data = token_buffer;
+    set_token_end(result);
     //fprintf(stdout, "%llu\n", digital_accumulator);
     return result;
 }
 
-Token Lexer::make_binary_number(void)
+Token *Lexer::make_binary_number(void)
 {
-    Token result;
-    result.type = TokenType_NUMBER;
-    result.flags = LiteralNumber_BINARY;
-    set_token_position(&result);
-    result.col_start -= 1; // account for '0' in the prefix
+    Token *result = get_unused_token();
+    result->type = TokenType_NUMBER;
+    result->flags = LiteralNumber_BINARY;
+    set_token_position(result);
+    result->col_start -= 1; // account for '0' in the prefix
     eat_character();
 
     u64 digital_accumulator = 0;
@@ -536,8 +591,8 @@ Token Lexer::make_binary_number(void)
             }
             else
             {
-                set_token_end(&result);
-                report_error(&result, "Can't have a decimal point in a binary number");
+                set_token_end(result);
+                report_error(result, "Can't have a decimal point in a binary number");
                 break;
             }
         }
@@ -547,8 +602,8 @@ Token Lexer::make_binary_number(void)
             int digit = c - '0';
             if (digit > 1)
             {
-                set_token_end(&result);
-                report_error(&result, "Invalid digit in a binary number");
+                set_token_end(result);
+                report_error(result, "Invalid digit in a binary number");
                 break;
             }
 
@@ -565,20 +620,20 @@ Token Lexer::make_binary_number(void)
     }
     *cur = 0;
 
-    result.name.length = cur - token_buffer;
-    result.name.data = token_buffer;
-    set_token_end(&result);
+    result->name.length = cur - token_buffer;
+    result->name.data = token_buffer;
+    set_token_end(result);
     //fprintf(stdout, "%llu\n", digital_accumulator);
     return result;
 }
 
-Token Lexer::make_hex_number(void)
+Token *Lexer::make_hex_number(void)
 {
-    Token result;
-    result.type = TokenType_NUMBER;
-    result.flags = LiteralNumber_HEXADECIMAL;
-    set_token_position(&result);
-    result.col_start -= 1; // account for '0' in the prefix
+    Token *result = get_unused_token();
+    result->type = TokenType_NUMBER;
+    result->flags = LiteralNumber_HEXADECIMAL;
+    set_token_position(result);
+    result->col_start -= 1; // account for '0' in the prefix
     eat_character();
 
     u64 digital_accumulator = 0;
@@ -607,8 +662,8 @@ Token Lexer::make_hex_number(void)
             }
             else
             {
-                set_token_end(&result);
-                report_error(&result, "Can't have a decimal point in a hexadecimal number");
+                set_token_end(result);
+                report_error(result, "Can't have a decimal point in a hexadecimal number");
                 break;
             }
         }
@@ -639,18 +694,18 @@ Token Lexer::make_hex_number(void)
     }
     *cur = 0;
 
-    result.name.length = cur - token_buffer;
-    result.name.data = token_buffer;
-    set_token_end(&result);
+    result->name.length = cur - token_buffer;
+    result->name.data = token_buffer;
+    set_token_end(result);
     //fprintf(stdout, "%llu\n", digital_accumulator);
     return result;
 }
 
-Token Lexer::make_string(void)
+Token *Lexer::make_string(void)
 {
-    Token result;
-    result.type = TokenType_STRING;
-    set_token_position(&result);
+    Token *result = get_unused_token();
+    result->type = TokenType_STRING;
+    set_token_position(result);
     eat_character();
 
     char *cur = token_buffer;
@@ -664,15 +719,15 @@ Token Lexer::make_string(void)
 
         if (c == -1)
         {
-            set_token_end(&result);
-            report_error(&result, "Reached end of file within a string literal.");
+            set_token_end(result);
+            report_error(result, "Reached end of file within a string literal.");
             break;
         }
 
         if (c == '\n')
         {
-            set_token_end(&result);
-            report_error(&result, "Reached new line within a string literal.");
+            set_token_end(result);
+            report_error(result, "Reached new line within a string literal.");
             break;
         }
 
@@ -699,8 +754,8 @@ Token Lexer::make_string(void)
                         c = low + (middle * 10) + (high * 100);
                         if (c > 255)
                         {
-                            set_token_end(&result);
-                            report_error(&result, "Decimal value of '%d' exceeds the limit.", c);
+                            set_token_end(result);
+                            report_error(result, "Decimal value of '%d' exceeds the limit.", c);
                         }
                     }
                 }
@@ -772,8 +827,8 @@ Token Lexer::make_string(void)
             }
             else
             {
-                set_token_end(&result);
-                report_error(&result, "Unknown escape sequence '\\%c' in string literal.", next);
+                set_token_end(result);
+                report_error(result, "Unknown escape sequence '\\%c' in string literal.", next);
                 c = next;
                 eat_character();
             }
@@ -784,17 +839,17 @@ Token Lexer::make_string(void)
     
     *cur = 0;
     
-    result.name.length = cur - token_buffer;
-    if (result.name.length)
+    result->name.length = cur - token_buffer;
+    if (result->name.length)
     {
-        result.name.data = token_buffer;
+        result->name.data = token_buffer;
     }
     else
     {
         // empty string
-        result.name.data = null;
+        result->name.data = null;
     }
-    set_token_end(&result);
+    set_token_end(result);
     return result;
 }
 
@@ -939,4 +994,71 @@ void Lexer::report_error(Token *pos, const char *format, ...)
     va_end(args);
 
     fputc('\n', stderr);
+}
+
+// @debug
+const char *token_type_strings(TokenType type)
+{
+    switch (type)
+    {
+        case TokenType_IDENTIFIER: return "IDENTIFIER";
+        case TokenType_NUMBER: return "NUMBER";
+        case TokenType_STRING: return "STRING";
+        case TokenType_PLUS_EQUALS: return "PLUS_EQUALS";
+        case TokenType_MINUS_EQUALS: return "MINUS_EQUALS";
+        case TokenType_TIMES_EQUALS: return "TIMES_EQUALS";
+        case TokenType_DIV_EQUALS: return "DIV_EQUALS";
+        case TokenType_MOD_EQUALS: return "MOD_EQUALS";
+        case TokenType_IS_EQUAL: return "IS_EQUAL,";
+        case TokenType_IS_NOT_EQUAL: return "IS_NOT_EQUAL";
+        case TokenType_LESS_EQUALS: return "LESS_EQUALS,";
+        case TokenType_GREATER_EQUALS: return "GREATER_EQUALS";
+        case TokenType_LOGICAL_AND: return "LOGICAL_AND";
+        case TokenType_LOGICAL_OR: return "LOGICAL_OR";
+        case TokenType_BINARY_XOR: return "BINARY_XOR";
+        case TokenType_BINARY_AND_EQUALS: return "BINARY_AND_EQUALS";
+        case TokenType_BINARY_OR_EQUALS: return "BINARY_OR_EQUALS";
+        case TokenType_SHIFT_LEFT: return "SHIFT_LEFT";
+        case TokenType_SHIFT_RIGHT: return "SHIFT_RIGHT";
+        case TokenType_SHIFT_LEFT_EQUALS: return "SHIFT_LEFT_EQUALS";
+        case TokenType_SHIFT_RIGHT_EQUALS: return "SHIFT_RIGHT_EQUALS";
+        case TokenType_DOUBLE_DOT: return "DOUBLE_DOT";
+        case TokenType_RIGHT_ARROW: return "RIGHT_ARROW";
+        case TokenType_RESERVED_TYPE: return "RESERVED_TYPE";
+        case TokenType_KEYWORD_ALIAS: return "KEYWORD_ALIAS";
+        case TokenType_KEYWORD_AS: return "KEYWORD_AS";
+        case TokenType_KEYWORD_AUTO_CAST: return "KEYWORD_AUTO_CAST";
+        case TokenType_KEYWORD_BREAK: return "KEYWORD_BREAK";
+        case TokenType_KEYWORD_CASE: return "KEYWORD_CASE";
+        case TokenType_KEYWORD_CAST: return "KEYWORD_CAST";
+        case TokenType_KEYWORD_CONST: return "KEYWORD_CONST";
+        case TokenType_KEYWORD_CONTINUE: return "KEYWORD_CONTINUE";
+        case TokenType_KEYWORD_DEFER: return "KEYWORD_DEFER";
+        case TokenType_KEYWORD_ELSE: return "KEYWORD_ELSE";
+        case TokenType_KEYWORD_ENUM: return "KEYWORD_ENUM";
+        case TokenType_KEYWORD_EXTERN: return "KEYWORD_EXTERN";
+        case TokenType_KEYWORD_FALSE: return "KEYWORD_FALSE";
+        case TokenType_KEYWORD_FOR: return "KEYWORD_FOR";
+        case TokenType_KEYWORD_FUNCTION: return "KEYWORD_FUNCTION";
+        case TokenType_KEYWORD_IF: return "KEYWORD_IF";
+        case TokenType_KEYWORD_INLINE: return "KEYWORD_INLINE";
+        case TokenType_KEYWORD_NO_INLINE: return "KEYWORD_NO_INLINE";
+        case TokenType_KEYWORD_NULL: return "KEYWORD_NULL";
+        case TokenType_KEYWORD_OPERATOR: return "KEYWORD_OPERATOR";
+        case TokenType_KEYWORD_RETURN: return "KEYWORD_RETURN";
+        case TokenType_KEYWORD_STRUCT: return "KEYWORD_STRUCT";
+        case TokenType_KEYWORD_SWITCH: return "KEYWORD_SWITCH";
+        case TokenType_KEYWORD_SIZE_OF: return "KEYWORD_SIZE_OF";
+        case TokenType_KEYWORD_THEN: return "KEYWORD_THEN";
+        case TokenType_KEYWORD_TRUE: return "KEYWORD_TRUE";
+        case TokenType_KEYWORD_TYPE: return "KEYWORD_TYPE";
+        case TokenType_KEYWORD_UNDEFINED: return "KEYWORD_UNDEFINED";
+        case TokenType_KEYWORD_UNION: return "KEYWORD_UNION";
+        case TokenType_KEYWORD_USING: return "KEYWORD_USING";
+        case TokenType_KEYWORD_WHILE: return "KEYWORD_WHILE";
+        case TokenType_KEYWORD_WITH: return "KEYWORD_WITH";
+        case TokenType_END_OF_FILE: return "END_OF_FILE";
+        case TokenType_ERROR: return "ERROR";
+    }
+    return "ERROR";
 }

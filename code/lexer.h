@@ -3,6 +3,7 @@
 #include "common.h"
 
 #define MAX_TOKEN_SIZE 512
+#define TOTAL_TOKEN_COUNT 8
 
 struct String
 {
@@ -121,11 +122,19 @@ struct Lexer
     int last_line_number = 0;
 
     char token_buffer[MAX_TOKEN_SIZE];
+    Token tokens[TOTAL_TOKEN_COUNT];
+    int token_cursor = 0;
+    int number_of_tokens = 0;
     Token eof;
+    
     b8 should_stop_processing = false;
 
     b8 initialize(String source);
-    Token peek_next_token(void);
+    Token *peek_next_token(void);
+    Token *peek_token(int index);
+    Token *generate_token(void);
+    void eat_token(void);
+    Token *get_unused_token(void);
 
     void eat_character(void);
     int peek_next_character(void);
@@ -136,13 +145,13 @@ struct Lexer
     void eat_until_new_line(void);
     void eat_block_comment(void);
 
-    Token make_one_character_token(int type);
-    Token check_for_equals(int token, int composed_token, b8 should_consume, int subtract_amount = 0);
-    Token make_identifier(void);
-    Token make_number(void);
-    Token make_binary_number(void);
-    Token make_hex_number(void);
-    Token make_string(void);
+    Token *make_one_character_token(int type);
+    Token *check_for_equals(int token, int composed_token, b8 should_consume, int subtract_amount = 0);
+    Token *make_identifier(void);
+    Token *make_number(void);
+    Token *make_binary_number(void);
+    Token *make_hex_number(void);
+    Token *make_string(void);
 
     int parse_decimal_digit(void);
     int parse_hexadecimal_digit(void);
@@ -158,3 +167,6 @@ enum LiteralNumber
     LiteralNumber_HEXADECIMAL = 0x2,
     LiteralNumber_FLOAT       = 0x4,
 };
+
+// @debug
+const char *token_type_strings(TokenType type);
